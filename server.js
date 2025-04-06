@@ -1,53 +1,55 @@
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
+const socketIo = require("socket.io");
 const cors = require("cors");
+const { v4: uuidv4 } = require("uuid"); // Generate unique IDs
 
 const app = express();
-app.use(cors());
-
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Allows all clients to connect
-  },
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
 });
 
-let users = []; // Stores connected users { id, name }
+let rooms = {}; // Store room users
 
 io.on("connection", (socket) => {
-  console.log(`✅ User connected: ${socket.id}`);
+    console.log("New client connected:", socket.id);
 
-  // Handle user joining the chat
-  socket.on("join", (username) => {
-    if (!users.some(user => user.name === username)) {
-      users.push({ id: socket.id, name: username });
-      console.log(`👤 ${username} joined. Users online:`, users.map(u => u.name));
-    }
-    io.emit("userList", users.map(user => user.name)); // Send updated user list
-  });
+    // Create a room with a unique ID
+    socket.on("createRoom", (callback) => {
+        const roomId = uuidv4(); // Generate unique room ID
+        rooms[roomId] = [];
+        callback(roomId); // Send room ID back to the client
+    });
 
-  // Handle sending messages
-  socket.on("sendMessage", ({ sender, receiver, message }) => {
-    console.log(`📩 Message from ${sender} to ${receiver}: ${message}`);
+    // Join an existing room
+    socket.on("joinRoom", ({ roomId, username }) => {
+        if (rooms[roomId]) {
+            rooms[roomId].push(username);
+            socket.join(roomId);
+            io.to(roomId).emit("roomUsers", rooms[roomId]); // Notify users
+        } else {
+            socket.emit("error", "Room does not exist!");
+        }
+    });
 
-    const recipient = users.find(user => user.name === receiver);
-    if (recipient) {
-      io.to(recipient.id).emit("receiveMessage", { sender, message });
-    }
-  });
+    // Handle sending messages in rooms
+    socket.on("sendRoomMessage", ({ roomId, sender, message }) => {
+        io.to(roomId).emit("receiveRoomMessage", { sender, message });
+    });
 
-  // Handle user disconnection
-  socket.on("disconnect", () => {
-    const disconnectedUser = users.find(user => user.id === socket.id);
-    if (disconnectedUser) {
-      console.log(`❌ User disconnected: ${disconnectedUser.name}`);
-      users = users.filter(user => user.id !== socket.id);
-      io.emit("userList", users.map(user => user.name)); // Update user list
-    }
-  });
+    // Handle disconnect
+    socket.on("disconnect", () => {
+        Object.keys(rooms).forEach(roomId => {
+            rooms[roomId] = rooms[roomId].filter(user => user !== socket.id);
+            if (rooms[roomId].length === 0) delete rooms[roomId];
+        });
+    });
 });
 
 server.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+    console.log("Server running on port 3000");
 });
