@@ -17,36 +17,45 @@ let rooms = {}; // { roomId: [username1, username2, ...] }
 let userMap = {}; // { socket.id: { username, roomId } }
 
 io.on("connection", (socket) => {
-    console.log("New client connected:", socket.id);
+    console.log("🟢 New client connected:", socket.id);
 
-    // Create a new room and return its ID
-    socket.on("createRoom", (callback) => {
-        const roomId = uuidv4(); // Generate unique room ID
-        rooms[roomId] = [];
-        callback(roomId); // Send room ID to client
+    // 🔹 Create a room
+    socket.on("createRoom", ({ roomId, user }) => {
+        console.log("📥 Room creation requested by user:", user.username, "ID:", roomId);
+
+        rooms[roomId] = [user.username];
+        userMap[socket.id] = { username: user.username, roomId };
+
+        socket.join(roomId);
+
+        // ✅ Emit roomCreated event back to the same user
+        socket.emit("roomCreated", roomId);
+
+        // 🔄 Notify others in the room
+        io.to(roomId).emit("roomUsers", rooms[roomId]);
     });
 
-    // User joins a room
+    // 🔹 Join a room
     socket.on("joinRoom", ({ roomId, username }) => {
         if (rooms[roomId]) {
             rooms[roomId].push(username);
             userMap[socket.id] = { username, roomId };
 
             socket.join(roomId);
-            console.log(`${username} joined room ${roomId}`);
+            console.log(`✅ ${username} joined room ${roomId}`);
 
-            io.to(roomId).emit("roomUsers", rooms[roomId]); // Broadcast updated user list
+            io.to(roomId).emit("roomUsers", rooms[roomId]);
         } else {
             socket.emit("error", "Room does not exist!");
         }
     });
 
-    // User sends a message to a room
+    // 🔹 Send a message to room
     socket.on("sendRoomMessage", ({ roomId, sender, message }) => {
         io.to(roomId).emit("receiveRoomMessage", { sender, message });
     });
 
-    // Client requests the current user list in a room
+    // 🔹 Get current users in a room
     socket.on("getUsers", (roomId, callback) => {
         if (rooms[roomId]) {
             callback(rooms[roomId]);
@@ -55,7 +64,7 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Handle user disconnect
+    // 🔹 Disconnect
     socket.on("disconnect", () => {
         const userInfo = userMap[socket.id];
         if (userInfo) {
@@ -72,7 +81,7 @@ io.on("connection", (socket) => {
             }
 
             delete userMap[socket.id];
-            console.log(`${username} disconnected from room ${roomId}`);
+            console.log(`🔴 ${username} disconnected from room ${roomId}`);
         }
     });
 });
